@@ -66,8 +66,8 @@ const commandsModule = ({
      */
     addDisplaySetAsLayer: ({ viewportId, displaySetInstanceUID, removeFirst = false }) => {
       if (!viewportId) {
-          const { activeViewportId } = servicesManager.services.viewportGridService.getState();
-          viewportId = activeViewportId;
+        const { activeViewportId } = servicesManager.services.viewportGridService.getState();
+        viewportId = activeViewportId;
       }
 
       if (!viewportId || !displaySetInstanceUID) {
@@ -761,6 +761,17 @@ const commandsModule = ({
 
       setTimeout(() => actions.scrollActiveThumbnailIntoView(), 0);
     },
+    mapBscans: () => {
+      // Placeholder function for Map Bscans button
+      // This will be implemented later
+      console.log('Map Bscans button clicked');
+      uiNotificationService.show({
+        title: 'Map B-scans',
+        message: 'Map B-scans feature coming soon',
+        type: 'info',
+        duration: 2000,
+      });
+    },
   };
 
   const definitions = {
@@ -789,6 +800,7 @@ const commandsModule = ({
     scrollActiveThumbnailIntoView: actions.scrollActiveThumbnailIntoView,
     addDisplaySetAsLayer: actions.addDisplaySetAsLayer,
     removeDisplaySetLayer: actions.removeDisplaySetLayer,
+    mapBscans: actions.mapBscans,
   };
 
   return {

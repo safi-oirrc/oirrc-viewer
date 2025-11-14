@@ -12,7 +12,7 @@ import { ToolBoxButtonGroupWrapper, ToolBoxButtonWrapper } from './Toolbar/ToolB
 import { ToolButtonWrapper } from './Toolbar/ToolButtonWrapper';
 
 export default function getToolbarModule({ commandsManager, servicesManager }: withAppTypes) {
-  const { cineService } = servicesManager.services;
+  const { cineService, viewportGridService } = servicesManager.services;
   return [
     // new
     {
@@ -51,6 +51,23 @@ export default function getToolbarModule({ commandsManager, servicesManager }: w
         const isToggled = cineService.getState().isCineEnabled;
         return {
           className: utils.getToggledClassName(isToggled),
+        };
+      },
+    },
+    {
+      name: 'evaluate.multipleViewports',
+      evaluate: () => {
+        const state = viewportGridService.getState();
+        const { viewports } = state;
+
+        // Count viewports with display sets
+        const activeViewportsCount = Array.from(viewports.values()).filter(
+          vp => vp.displaySetInstanceUIDs && vp.displaySetInstanceUIDs.length > 0
+        ).length;
+
+        // Enable button only when there are 2 or more viewports
+        return {
+          disabled: activeViewportsCount < 2,
         };
       },
     },

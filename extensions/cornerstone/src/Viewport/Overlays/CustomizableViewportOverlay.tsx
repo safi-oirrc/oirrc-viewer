@@ -47,6 +47,7 @@ const OverlayItemComponents = {
   'ohif.overlayItem.windowLevel': VOIOverlayItem,
   'ohif.overlayItem.zoomLevel': ZoomOverlayItem,
   'ohif.overlayItem.instanceNumber': InstanceNumberOverlayItem,
+  'ohif.overlayItem.modality': ModalityOverlayItem,
 };
 
 /**
@@ -463,6 +464,209 @@ function InstanceNumberOverlayItem({
   );
 }
 
+/**
+ * Modality Overlay Item - Shows modality when multiple viewports are displayed
+ */
+function ModalityOverlayItem({ servicesManager, viewportId, customization }: OverlayItemProps) {
+  const { viewportGridService, displaySetService } = servicesManager.services;
+  const [modality, setModality] = useState<string | null>(null);
+  const [shouldShow, setShouldShow] = useState(false);
+
+  useEffect(() => {
+    // Function to retrieve DICOM files from Orthanc using dicomweb-client (same as OHIF)
+    const retrieveDicomFiles = async (viewports, displaySetService) => {
+      const modalities = [];
+      const displaySetsInfo = [];
+
+      // Collect modalities and display set info from all active viewports
+      for (const [vpId, viewport] of viewports) {
+        if (!viewport?.displaySetInstanceUIDs?.[0]) {
+          continue;
+        }
+
+        const displaySet = displaySetService.getDisplaySetByUID(viewport.displaySetInstanceUIDs[0]);
+        if (displaySet?.Modality) {
+          modalities.push(displaySet.Modality);
+          displaySetsInfo.push({
+            viewportId: vpId,
+            modality: displaySet.Modality,
+            displaySet: displaySet,
+            studyInstanceUID: displaySet.StudyInstanceUID,
+            seriesInstanceUID: displaySet.SeriesInstanceUID,
+          });
+        }
+      }
+
+      // Check if we have OP and OPT modalities
+      const hasOP = modalities.includes('OP');
+      const hasOPT = modalities.includes('OPT');
+
+      if (hasOP && hasOPT) {
+        console.log('=== DICOM File Retrieval Started ===');
+        console.log('Multiple viewports detected with OP and OPT modalities');
+        console.log('Display Sets Info:', displaySetsInfo);
+
+        try {
+          // Import dicomweb-client dynamically
+          const { api } = await import('dicomweb-client');
+
+          // Get the WADO root URL from window.config (same config OHIF uses)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const wadoRoot =
+            (window as any).config?.dataSources?.[0]?.configuration?.wadoRoot ||
+            'http://localhost/pacs';
+
+          console.log('Using WADO Root:', wadoRoot);
+
+          // Create DICOMweb client with the same configuration OHIF uses
+          // This will automatically use browser cookies for authentication
+          const dicomWebClient = new api.DICOMwebClient({
+            url: wadoRoot,
+            singlepart: 'bulkdata',
+          });
+
+          // Retrieve DICOM files for each display set
+          for (const info of displaySetsInfo) {
+            console.log(
+              `\n--- Retrieving DICOM files for ${info.modality} (Viewport: ${info.viewportId}) ---`
+            );
+            console.log(`Study UID: ${info.studyInstanceUID}`);
+            console.log(`Series UID: ${info.seriesInstanceUID}`);
+
+            const displaySet = info.displaySet;
+            const instances = displaySet.images || displaySet.instances || [];
+
+            if (instances.length === 0) {
+              console.warn(`  No instances found in displaySet`);
+              continue;
+            }
+
+            console.log(`✓ Found ${instances.length} instances in series`);
+
+            let totalSize = 0;
+            const retrievedFiles = [];
+
+            // Retrieve each DICOM instance file
+            for (let i = 0; i < instances.length; i++) {
+              const instance = instances[i];
+              const sopInstanceUID = instance.SOPInstanceUID || instance['00080018']?.Value?.[0];
+
+              if (!sopInstanceUID) {
+                console.warn(`  Instance ${i + 1}: Missing SOP Instance UID`);
+                continue;
+              }
+
+              try {
+                console.log(
+                  `  Retrieving instance ${i + 1}/${instances.length}: ${sopInstanceUID}`
+                );
+
+                // Use dicomweb-client's retrieveInstance method (same as OHIF uses)
+                const arrayBuffer = await dicomWebClient.retrieveInstance({
+                  studyInstanceUID: info.studyInstanceUID,
+                  seriesInstanceUID: info.seriesInstanceUID,
+                  sopInstanceUID: sopInstanceUID,
+                });
+
+                const fileSize = arrayBuffer.byteLength;
+                totalSize += fileSize;
+
+                // Create a Blob from the ArrayBuffer
+                const blob = new Blob([arrayBuffer], { type: 'application/dicom' });
+
+                retrievedFiles.push({
+                  sopInstanceUID,
+                  arrayBuffer,
+                  blob,
+                  size: fileSize,
+                  modality: info.modality,
+                });
+
+                console.log(`    ✓ Retrieved: ${(fileSize / 1024).toFixed(2)} KB`);
+              } catch (error) {
+                console.error(`    ✗ Failed to retrieve instance ${sopInstanceUID}:`, error);
+              }
+            }
+
+            console.log(
+              `✓ Successfully retrieved ${retrievedFiles.length}/${instances.length} DICOM files for ${info.modality}`
+            );
+            console.log(`  Total size: ${(totalSize / 1024 / 1024).toFixed(2)} MB`);
+
+            // Log the retrieved files summary
+            console.log(
+              `  Retrieved files:`,
+              retrievedFiles.map(f => ({
+                SOP: f.sopInstanceUID,
+                size: `${(f.size / 1024).toFixed(2)} KB`,
+                modality: f.modality,
+              }))
+            );
+          }
+
+          console.log('\n=== DICOM File Retrieval Complete ===');
+        } catch (error) {
+          console.error('Error during DICOM file retrieval:', error);
+        }
+      }
+    };
+
+    const updateModality = () => {
+      const state = viewportGridService.getState();
+      const { viewports } = state;
+
+      // Only show modality if there are 2 or more viewports
+      const activeViewportsCount = Array.from(viewports.values()).filter(
+        vp => vp.displaySetInstanceUIDs && vp.displaySetInstanceUIDs.length > 0
+      ).length;
+
+      if (activeViewportsCount < 2) {
+        setShouldShow(false);
+        return;
+      }
+
+      setShouldShow(true);
+
+      // Get the modality from the current viewport's displaySet
+      const viewport = viewports.get(viewportId);
+      if (!viewport?.displaySetInstanceUIDs?.[0]) {
+        setModality(null);
+        return;
+      }
+
+      const displaySet = displaySetService.getDisplaySetByUID(viewport.displaySetInstanceUIDs[0]);
+      setModality(displaySet?.Modality || null);
+
+      // Trigger DICOM retrieval when we have multiple viewports
+      retrieveDicomFiles(viewports, displaySetService);
+    };
+
+    updateModality();
+
+    // Subscribe to viewport grid changes
+    const subscriptions = [
+      viewportGridService.subscribe(viewportGridService.EVENTS.LAYOUT_CHANGED, updateModality),
+      viewportGridService.subscribe(viewportGridService.EVENTS.GRID_STATE_CHANGED, updateModality),
+    ];
+
+    return () => {
+      subscriptions.forEach(sub => sub.unsubscribe());
+    };
+  }, [viewportGridService, displaySetService, viewportId]);
+
+  if (!shouldShow || !modality) {
+    return null;
+  }
+
+  return (
+    <div
+      className="overlay-item flex flex-row"
+      style={{ color: (customization && customization.color) || undefined }}
+    >
+      <span className="text-base font-semibold">{modality}</span>
+    </div>
+  );
+}
 CustomizableViewportOverlay.propTypes = {
   viewportData: PropTypes.object,
   imageIndex: PropTypes.number,

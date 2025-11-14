@@ -20,7 +20,12 @@ export default {
       contentF: ({ referenceInstance }) => referenceInstance.SeriesDescription,
     },
   ],
-  'viewportOverlay.topRight': [],
+  'viewportOverlay.topRight': [
+    {
+      id: 'Modality',
+      inheritsFrom: 'ohif.overlayItem.modality',
+    },
+  ],
   'viewportOverlay.bottomLeft': [
     {
       id: 'WindowLevel',
